@@ -1,0 +1,45 @@
+# Alluvium — Netlify configuration
+# Static site. No build step. No backend.
+
+[build]
+  publish = "."
+
+# Security and CORS headers required for direct browser-to-Anthropic API calls
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    Content-Security-Policy = """
+      default-src 'self';
+      script-src 'self' https://cdnjs.cloudflare.com;
+      style-src 'self' https://fonts.googleapis.com 'unsafe-inline';
+      font-src https://fonts.gstatic.com;
+      connect-src 'self' https://api.anthropic.com;
+      img-src 'self' data:;
+    """
+
+# Cache static assets aggressively; never cache HTML (app updates instantly)
+[[headers]]
+  for = "/styles.css"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/app.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# SPA fallback — not strictly needed for a single-page app with no routing,
+# but keeps things tidy if you add hash-based navigation later.
+[[redirects]]
+  from = "/*"
+  to   = "/index.html"
+  status = 200

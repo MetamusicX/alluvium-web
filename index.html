@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alluvium — Flow becomes knowledge</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- ================================================================
+       NAV
+  ================================================================ -->
+  <nav id="nav">
+    <div class="nav-inner">
+      <a class="nav-logo" href="#hero">
+        <span class="logo-mark">~</span>
+        <span class="logo-text">Alluvium</span>
+      </a>
+      <div class="nav-links">
+        <a href="#editor" class="nav-link">Editor</a>
+        <a href="#settings" class="nav-link">Settings</a>
+        <a href="#results" class="nav-link" id="nav-results" style="display:none">Results</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ================================================================
+       HERO
+  ================================================================ -->
+  <section id="hero">
+    <div class="hero-inner">
+      <div class="hero-mark">~</div>
+      <h1 class="hero-title">Alluvium</h1>
+      <p class="hero-tagline">Flow becomes knowledge</p>
+      <p class="hero-description">
+        Alluvium operates like a perceptual system. It captures experience as it unfolds—moment by moment—without requiring any prior structure. From this continuous flow, the system progressively extracts, organizes, and stabilizes elements into a coherent and navigable knowledge landscape.
+      </p>
+      <p class="hero-description hero-description--secondary">
+        Flow becomes structure through time. Organization is not imposed; it crystallizes.
+      </p>
+      <div class="hero-actions">
+        <a href="#editor" class="btn btn-primary">Start writing</a>
+        <a href="#settings" class="btn btn-ghost">Configure</a>
+      </div>
+      <div class="hero-how">
+        <div class="how-step">
+          <span class="how-number">01</span>
+          <span class="how-text">Write or paste your journal entry</span>
+        </div>
+        <div class="how-divider"></div>
+        <div class="how-step">
+          <span class="how-number">02</span>
+          <span class="how-text">Claude extracts atomic notes directly in your browser</span>
+        </div>
+        <div class="how-divider"></div>
+        <div class="how-step">
+          <span class="how-number">03</span>
+          <span class="how-text">Download as markdown files for Obsidian</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================
+       EDITOR
+  ================================================================ -->
+  <section id="editor">
+    <div class="section-inner">
+      <div class="section-header">
+        <h2 class="section-title">Journal Entry</h2>
+        <div class="editor-meta">
+          <input type="date" id="entry-date" class="date-input" />
+        </div>
+      </div>
+
+      <div class="editor-wrapper">
+        <textarea
+          id="journal-input"
+          class="journal-textarea"
+          placeholder="Write freely. One sitting. No formatting required.
+
+What happened today? What are you thinking about? What did you read, practice, or notice?
+
+The system will extract the signal from the flow."
+          spellcheck="false"
+        ></textarea>
+        <div class="editor-footer">
+          <span class="word-count" id="word-count">0 words</span>
+          <div class="editor-actions">
+            <button class="btn btn-ghost btn-sm" id="btn-clear">Clear</button>
+            <button class="btn btn-primary" id="btn-process">
+              <span id="btn-process-label">Process entry</span>
+              <span id="btn-process-spinner" class="spinner" style="display:none"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="processing-status" class="processing-status" style="display:none">
+        <div class="status-dot"></div>
+        <span id="status-text">Calling Claude...</span>
+      </div>
+
+      <div id="error-banner" class="error-banner" style="display:none">
+        <strong>Error:</strong> <span id="error-message"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================
+       SETTINGS
+  ================================================================ -->
+  <section id="settings">
+    <div class="section-inner">
+      <div class="section-header">
+        <h2 class="section-title">Settings</h2>
+        <p class="section-subtitle">Stored in your browser only. Never sent anywhere.</p>
+      </div>
+
+      <div class="settings-grid">
+
+        <!-- API Key -->
+        <div class="settings-card">
+          <h3 class="settings-card-title">Anthropic API Key</h3>
+          <p class="settings-card-desc">
+            Your key is stored in <code>localStorage</code> and used only for direct browser-to-Claude API calls. It never touches a server.
+          </p>
+          <div class="input-group">
+            <input
+              type="password"
+              id="api-key-input"
+              class="text-input"
+              placeholder="sk-ant-..."
+              autocomplete="off"
+            />
+            <button class="btn btn-ghost btn-sm" id="btn-toggle-key">Show</button>
+          </div>
+          <div class="settings-actions">
+            <button class="btn btn-primary btn-sm" id="btn-save-key">Save key</button>
+            <button class="btn btn-ghost btn-sm" id="btn-clear-key">Remove</button>
+          </div>
+          <p class="settings-note" id="key-status"></p>
+        </div>
+
+        <!-- Domains -->
+        <div class="settings-card">
+          <h3 class="settings-card-title">Life Domains</h3>
+          <p class="settings-card-desc">
+            Domains give Claude context for classifying your notes. One per line, format: <code>key: Name — description</code>
+          </p>
+          <textarea
+            id="domains-input"
+            class="text-input domains-textarea"
+            placeholder="work: Work — main professional activities
+writing: Writing — articles, books, manuscripts
+sport: Sport — training, fitness, racing
+music: Music — practice, performance
+personal: Personal — everything else"
+          ></textarea>
+          <div class="settings-actions">
+            <button class="btn btn-primary btn-sm" id="btn-save-domains">Save domains</button>
+            <button class="btn btn-ghost btn-sm" id="btn-reset-domains">Reset to defaults</button>
+          </div>
+          <p class="settings-note" id="domains-status"></p>
+        </div>
+
+        <!-- Model -->
+        <div class="settings-card">
+          <h3 class="settings-card-title">Model</h3>
+          <p class="settings-card-desc">
+            Claude model to use for extraction. Sonnet 4 is the recommended default.
+          </p>
+          <select id="model-select" class="text-input select-input">
+            <option value="claude-sonnet-4-6">claude-sonnet-4-6 (recommended)</option>
+            <option value="claude-opus-4-5">claude-opus-4-5 (slower, more thorough)</option>
+            <option value="claude-haiku-4-5">claude-haiku-4-5 (fast, cheaper)</option>
+          </select>
+          <div class="settings-actions">
+            <button class="btn btn-primary btn-sm" id="btn-save-model">Save</button>
+          </div>
+          <p class="settings-note" id="model-status"></p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================
+       RESULTS
+  ================================================================ -->
+  <section id="results" style="display:none">
+    <div class="section-inner">
+      <div class="section-header">
+        <h2 class="section-title">Extracted Notes</h2>
+        <div class="results-actions">
+          <span class="results-count" id="results-count"></span>
+          <button class="btn btn-ghost btn-sm" id="btn-copy-all">Copy all</button>
+          <button class="btn btn-primary btn-sm" id="btn-download-zip">Download .zip</button>
+        </div>
+      </div>
+
+      <div id="notes-grid" class="notes-grid"></div>
+    </div>
+  </section>
+
+  <!-- ================================================================
+       FOOTER
+  ================================================================ -->
+  <footer id="footer">
+    <div class="footer-inner">
+      <span class="footer-mark">~</span>
+      <p class="footer-text">
+        Built by Paulo de Assis —
+        <a href="https://github.com/MetamusicX/alluvium" target="_blank" rel="noopener" class="footer-link">Open source on GitHub</a>
+      </p>
+      <p class="footer-sub">Your API key never leaves your browser.</p>
+    </div>
+  </footer>
+
+  <!-- JSZip for download -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
