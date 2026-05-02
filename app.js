@@ -404,6 +404,7 @@ async function loadFolderUI() {
 }
 
 async function chooseFolder() {
+  setFolderStatus('Opening folder picker...', '');
   try {
     const handle = await window.showDirectoryPicker();
     await saveHandle(handle);
@@ -411,7 +412,10 @@ async function chooseFolder() {
     elBtnClearFolder.style.display = 'inline-flex';
     setFolderStatus('Folder set. Notes will save here automatically.', 'ok');
   } catch (err) {
-    if (err.name === 'AbortError') return; // user cancelled picker
+    if (err.name === 'AbortError') {
+      setFolderStatus('', '');
+      return;
+    }
     setFolderStatus(`Could not access folder: ${err.message}`, 'err');
   }
 }
