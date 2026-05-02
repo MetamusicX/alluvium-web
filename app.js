@@ -15,6 +15,7 @@
 const LS_API_KEY    = 'alluvium_api_key';
 const LS_DOMAINS    = 'alluvium_domains';
 const LS_MODEL      = 'alluvium_model';
+const LS_VAULT_ORG  = 'alluvium_vault_org';
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
@@ -30,6 +31,58 @@ const NOTE_TYPES = [
   'event', 'idea', 'task', 'reflection', 'practice-log',
   'meeting', 'reading', 'person',
 ];
+
+// =============================================================
+// Path resolution — matches vault monthly subfolder structure
+// =============================================================
+
+/**
+ * Check whether a date string falls in the current calendar month.
+ * Current-month files live at the folder root; older months live
+ * in a YYYY-MM subfolder (created by the archive step on the 1st).
+ */
+function isCurrentMonth(dateStr) {
+  const [y, m] = dateStr.split('-').map(Number);
+  const now = new Date();
+  return y === now.getFullYear() && m === (now.getMonth() + 1);
+}
+
+/**
+ * Return the vault-relative path for a journal entry.
+ *   Current month → 00 Journal/YYYY-MM-DD.md
+ *   Older month   → 00 Journal/YYYY-MM/YYYY-MM-DD.md
+ */
+function journalPath(dateStr) {
+  if (isCurrentMonth(dateStr)) return `00 Journal/${dateStr}.md`;
+  return `00 Journal/${dateStr.slice(0, 7)}/${dateStr}.md`;
+}
+
+/**
+ * Return the vault-relative path for a day summary.
+ *   Current month → Day Summaries/YYYY-MM-DD.md
+ *   Older month   → Day Summaries/YYYY-MM/YYYY-MM-DD.md
+ */
+function summaryPath(dateStr) {
+  if (isCurrentMonth(dateStr)) return `Day Summaries/${dateStr}.md`;
+  return `Day Summaries/${dateStr.slice(0, 7)}/${dateStr}.md`;
+}
+
+/**
+ * Map a PARA category to its vault folder name.
+ * Person-type notes always go to People/, regardless of PARA.
+ * If no PARA category, falls back to 01 Inbox/.
+ */
+const PARA_FOLDERS = {
+  project:  '1 Projects',
+  area:     '2 Areas',
+  resource: '3 Resources',
+  archive:  '4 Archive',
+};
+
+function paraFolder(note) {
+  if (note.type === 'person') return 'People';
+  return PARA_FOLDERS[note.para] || '01 Inbox';
+}
 
 // =============================================================
 // State
@@ -71,6 +124,8 @@ const elModelSelect        = $('model-select');
 const elBtnSaveModel       = $('btn-save-model');
 const elModelStatus        = $('model-status');
 
+const elVaultOrgCheck      = $('vault-org-check');
+
 const elResults            = $('results');
 const elNavResults         = $('nav-results');
 const elResultsCount       = $('results-count');
@@ -108,6 +163,10 @@ function init() {
 
   elBtnSaveModel.addEventListener('click', saveModel);
 
+  elVaultOrgCheck.addEventListener('change', () => {
+    localStorage.setItem(LS_VAULT_ORG, elVaultOrgCheck.checked ? '1' : '');
+  });
+
   elBtnDownloadZip.addEventListener('click', downloadZip);
   elBtnCopyAll.addEventListener('click', copyAll);
 
@@ -134,6 +193,9 @@ function loadSettingsUI() {
   // Model
   const savedModel = localStorage.getItem(LS_MODEL) || DEFAULT_MODEL;
   elModelSelect.value = savedModel;
+
+  // Vault organization
+  elVaultOrgCheck.checked = !!localStorage.getItem(LS_VAULT_ORG);
 }
 
 function loadDomains() {
@@ -300,12 +362,27 @@ Reading Deleuze's "Difference and Repetition" again. The concept of the virtual 
 ]
 `;
 
-function buildPrompt(journalText, domains, targetDate) {
+function buildPrompt(journalText, domains, targetDate, vaultOrg) {
   const domainsDesc = domains
     .map(d => `- **${d.name}** (${d.key}): ${d.description}`)
     .join('\n');
 
   const noteTypes = NOTE_TYPES.join(', ');
+
+  const paraRules = vaultOrg ? `
+## PARA Classification (Tiago Forte)
+Classify each note into one of the PARA categories:
+- **project** — an active effort with a clear outcome or deadline (e.g. a grant application, preparing for a race, writing a chapter)
+- **area** — an ongoing responsibility with no end date (e.g. health, career, a professional role)
+- **resource** — a topic of interest, reference material, ideas worth keeping (e.g. a book insight, a technique, a concept)
+- **archive** — completed items, things no longer active
+
+Most freshly extracted notes will be "resource" (ideas, readings, reflections) or "project" (tasks with deadlines, active work). Use "area" for ongoing commitments. Use "archive" only when the note explicitly describes something finished or closed. Person-type notes do not need a PARA category.
+` : '';
+
+  const paraOutputField = vaultOrg
+    ? `\n- "para": one of "project", "area", "resource", "archive" — the PARA category (omit for person-type notes)`
+    : '';
 
   return `You are a journal analyst for a personal knowledge management system. Your job is to read a daily journal entry and extract distinct atomic notes from it.
 
@@ -323,7 +400,7 @@ ${domainsDesc}
 8. For practice logs (training, music practice), include specific details: duration, what was practiced/trained, how it felt.
 9. Every note body should end with: Extracted from [[${targetDate}]].
 10. The "related" field lists titles of other notes this one connects to.
-${FEW_SHOT_EXAMPLE}
+${paraRules}${FEW_SHOT_EXAMPLE}
 
 ## Output Format
 Return a JSON array of objects, each with:
@@ -332,7 +409,7 @@ Return a JSON array of objects, each with:
 - "domain": primary domain key from the domains listed above
 - "tags": list of tags (lowercase, no #, use hyphens not spaces)
 - "related": list of titles this note connects to (used as [[wikilinks]])
-- "body": the note content in markdown, using [[wikilinks]] for connections
+- "body": the note content in markdown, using [[wikilinks]] for connections${paraOutputField}
 
 Journal date: ${targetDate}
 
@@ -408,14 +485,15 @@ async function onProcess() {
     return;
   }
 
-  const model   = localStorage.getItem(LS_MODEL) || DEFAULT_MODEL;
-  const domains = loadDomains();
-  const date    = elEntryDate.value || currentDate;
+  const model    = localStorage.getItem(LS_MODEL) || DEFAULT_MODEL;
+  const domains  = loadDomains();
+  const date     = elEntryDate.value || currentDate;
+  const vaultOrg = elVaultOrgCheck.checked;
 
   setProcessing(true, 'Sending to Claude...');
 
   try {
-    const prompt = buildPrompt(journalText, domains, date);
+    const prompt = buildPrompt(journalText, domains, date, vaultOrg);
 
     setProcessing(true, 'Extracting atomic notes...');
     const raw   = await callClaude(apiKey, model, prompt);
@@ -509,7 +587,7 @@ function buildFrontmatter(note, date) {
   const related = (note.related || []).map(r => `  - "[[${r}]]"`).join('\n');
   const tags    = (note.tags || []).map(t => `  - ${t}`).join('\n');
 
-  return [
+  const lines = [
     '---',
     `title: "${escapeYaml(note.title)}"`,
     `aliases: []`,
@@ -517,6 +595,13 @@ function buildFrontmatter(note, date) {
     `date_modified: ${date}`,
     `type: ${note.type || 'note'}`,
     `domain: ${note.domain || 'personal'}`,
+  ];
+
+  if (note.para) {
+    lines.push(`para: ${note.para}`);
+  }
+
+  lines.push(
     `tags:`,
     tags || '  []',
     `source_entries:`,
@@ -525,7 +610,9 @@ function buildFrontmatter(note, date) {
     related || '  []',
     `status: active`,
     '---',
-  ].join('\n');
+  );
+
+  return lines.join('\n');
 }
 
 function escapeYaml(str) {
@@ -582,6 +669,13 @@ function buildNoteCard(note, date, idx) {
   // Meta (domain + tags)
   const meta = document.createElement('div');
   meta.className = 'note-card-meta';
+
+  if (note.para) {
+    const paraEl = document.createElement('span');
+    paraEl.className   = `note-para para-${note.para}`;
+    paraEl.textContent = note.para;
+    meta.appendChild(paraEl);
+  }
 
   if (note.domain) {
     const domEl = document.createElement('span');
@@ -649,16 +743,33 @@ function buildNoteCard(note, date, idx) {
 async function downloadZip() {
   if (!extractedNotes.length) return;
 
-  const date = elEntryDate.value || currentDate;
-  const zip  = new JSZip();
-  const folder = zip.folder('alluvium-notes');
+  const date     = elEntryDate.value || currentDate;
+  const vaultOrg = elVaultOrgCheck.checked;
+  const zip      = new JSZip();
 
-  extractedNotes.forEach((note, idx) => {
-    const fm      = buildFrontmatter(note, date);
-    const content = fm + '\n\n' + (note.body || '') + '\n';
-    const slug    = slugify(note.title || `note-${idx + 1}`);
-    folder.file(`${slug}.md`, content);
-  });
+  if (vaultOrg) {
+    // --- Vault structure: 00 Journal/, 01 Inbox/, People/, monthly subfolders ---
+    const journalText = elJournalInput.value.trim();
+    if (journalText) {
+      zip.file(journalPath(date), journalText + '\n');
+    }
+
+    extractedNotes.forEach((note, idx) => {
+      const fm      = buildFrontmatter(note, date);
+      const content = fm + '\n\n' + (note.body || '') + '\n';
+      const slug    = slugify(note.title || `note-${idx + 1}`);
+      zip.file(`${paraFolder(note)}/${slug}.md`, content);
+    });
+  } else {
+    // --- Flat structure: alluvium-notes/ ---
+    const folder = zip.folder('alluvium-notes');
+    extractedNotes.forEach((note, idx) => {
+      const fm      = buildFrontmatter(note, date);
+      const content = fm + '\n\n' + (note.body || '') + '\n';
+      const slug    = slugify(note.title || `note-${idx + 1}`);
+      folder.file(`${slug}.md`, content);
+    });
+  }
 
   const blob = await zip.generateAsync({ type: 'blob' });
   const url  = URL.createObjectURL(blob);
