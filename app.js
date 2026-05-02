@@ -145,6 +145,95 @@ function paraFolder(note) {
 }
 
 // =============================================================
+// IndexedDB — persist folder handle across sessions
+// =============================================================
+
+const DB_NAME  = 'alluvium';
+const DB_STORE = 'handles';
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveHandle(handle) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    tx.objectStore(DB_STORE).put(handle, 'outputDir');
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function loadHandle() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readonly');
+    const req = tx.objectStore(DB_STORE).get('outputDir');
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function removeHandle() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    tx.objectStore(DB_STORE).delete('outputDir');
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// =============================================================
+// File list builder (shared by ZIP download and folder write)
+// =============================================================
+
+function buildFileList(notes, date, vaultOrg, journalText) {
+  const files = [];
+
+  if (vaultOrg) {
+    if (journalText) {
+      files.push({ path: journalPath(date), content: journalText + '\n' });
+    }
+    notes.forEach((note, idx) => {
+      const fm      = buildFrontmatter(note, date);
+      const content = fm + '\n\n' + (note.body || '') + '\n';
+      const slug    = slugify(note.title || `note-${idx + 1}`);
+      files.push({ path: `${paraFolder(note)}/${slug}.md`, content });
+    });
+  } else {
+    notes.forEach((note, idx) => {
+      const fm      = buildFrontmatter(note, date);
+      const content = fm + '\n\n' + (note.body || '') + '\n';
+      const slug    = slugify(note.title || `note-${idx + 1}`);
+      files.push({ path: `alluvium-notes/${slug}.md`, content });
+    });
+  }
+
+  return files;
+}
+
+async function writeFilesToFolder(handle, files) {
+  for (const { path, content } of files) {
+    const parts = path.split('/');
+    let dir = handle;
+    for (let i = 0; i < parts.length - 1; i++) {
+      dir = await dir.getDirectoryHandle(parts[i], { create: true });
+    }
+    const fh = await dir.getFileHandle(parts[parts.length - 1], { create: true });
+    const w  = await fh.createWritable();
+    await w.write(content);
+    await w.close();
+  }
+}
+
+// =============================================================
 // State
 // =============================================================
 
@@ -186,6 +275,12 @@ const elBtnSaveModel       = $('btn-save-model');
 const elModelStatus        = $('model-status');
 
 const elVaultOrgCheck      = $('vault-org-check');
+
+const elFolderCard         = $('folder-card');
+const elFolderName         = $('folder-name');
+const elBtnChooseFolder    = $('btn-choose-folder');
+const elBtnClearFolder     = $('btn-clear-folder');
+const elFolderStatus       = $('folder-status');
 
 const elResults            = $('results');
 const elNavResults         = $('nav-results');
@@ -232,6 +327,9 @@ function init() {
 
   elBtnSaveModel.addEventListener('click', saveModel);
 
+  elBtnChooseFolder.addEventListener('click', chooseFolder);
+  elBtnClearFolder.addEventListener('click', clearFolder);
+
   elVaultOrgCheck.addEventListener('change', () => {
     localStorage.setItem(LS_VAULT_ORG, elVaultOrgCheck.checked ? '1' : '');
   });
@@ -276,6 +374,63 @@ function loadSettingsUI() {
 
   // Vault organization
   elVaultOrgCheck.checked = !!localStorage.getItem(LS_VAULT_ORG);
+
+  // Output folder
+  loadFolderUI();
+}
+
+// =============================================================
+// Output folder — File System Access API
+// =============================================================
+
+async function loadFolderUI() {
+  if (!('showDirectoryPicker' in window)) {
+    if (elFolderCard) elFolderCard.style.display = 'none';
+    return;
+  }
+  try {
+    const handle = await loadHandle();
+    if (handle) {
+      elFolderName.textContent = handle.name;
+      elBtnClearFolder.style.display = 'inline-flex';
+      const perm = await handle.queryPermission({ mode: 'readwrite' });
+      if (perm === 'granted') {
+        setFolderStatus('Ready. Notes will save here automatically.', 'ok');
+      } else {
+        setFolderStatus('Permission needed — will be requested on next extraction.', '');
+      }
+    }
+  } catch (e) { /* ignore */ }
+}
+
+async function chooseFolder() {
+  if (!('showDirectoryPicker' in window)) {
+    setFolderStatus('Not supported in this browser. Use Chrome or Edge.', 'err');
+    return;
+  }
+  try {
+    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    await saveHandle(handle);
+    elFolderName.textContent = handle.name;
+    elBtnClearFolder.style.display = 'inline-flex';
+    setFolderStatus('Folder set. Notes will save here automatically.', 'ok');
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      setFolderStatus('Could not access folder.', 'err');
+    }
+  }
+}
+
+async function clearFolder() {
+  await removeHandle();
+  elFolderName.textContent = 'No folder selected';
+  elBtnClearFolder.style.display = 'none';
+  setFolderStatus('Folder removed.', '');
+}
+
+function setFolderStatus(msg, cls) {
+  elFolderStatus.textContent = msg;
+  elFolderStatus.className   = 'settings-note' + (cls ? ' ' + cls : '');
 }
 
 function populateProviderSelect() {
@@ -657,6 +812,16 @@ async function onProcess() {
   const date     = elEntryDate.value || currentDate;
   const vaultOrg = elVaultOrgCheck.checked;
 
+  // Pre-verify folder permission within user gesture (before async API call)
+  let folderHandle = null;
+  try {
+    const handle = await loadHandle();
+    if (handle) {
+      const perm = await handle.requestPermission({ mode: 'readwrite' });
+      if (perm === 'granted') folderHandle = handle;
+    }
+  } catch (e) { /* folder access not available */ }
+
   setProcessing(true, `Sending to ${provider.name}...`);
 
   try {
@@ -669,7 +834,15 @@ async function onProcess() {
     const notes = parseNotes(raw);
 
     extractedNotes = notes;
-    renderResults(notes, date);
+
+    // Auto-save to folder if set
+    if (folderHandle) {
+      setProcessing(true, `Saving to ${folderHandle.name}...`);
+      const files = buildFileList(notes, date, vaultOrg, vaultOrg ? journalText : '');
+      await writeFilesToFolder(folderHandle, files);
+    }
+
+    renderResults(notes, date, folderHandle);
 
   } catch (err) {
     let msg = err.message || 'Unknown error.';
@@ -716,7 +889,7 @@ function hideError() {
 // Render results
 // =============================================================
 
-function renderResults(notes, date) {
+function renderResults(notes, date, folderHandle) {
   elNotesGrid.innerHTML = '';
 
   if (!notes.length) {
@@ -728,7 +901,11 @@ function renderResults(notes, date) {
     });
   }
 
-  elResultsCount.textContent = `${notes.length} note${notes.length !== 1 ? 's' : ''} extracted`;
+  const n = notes.length;
+  const label = `${n} note${n !== 1 ? 's' : ''}`;
+  elResultsCount.textContent = folderHandle
+    ? `${label} saved to ${folderHandle.name}`
+    : `${label} extracted`;
   elResults.style.display    = 'block';
   elNavResults.style.display = 'inline';
 
@@ -910,33 +1087,13 @@ function buildNoteCard(note, date, idx) {
 async function downloadZip() {
   if (!extractedNotes.length) return;
 
-  const date     = elEntryDate.value || currentDate;
-  const vaultOrg = elVaultOrgCheck.checked;
-  const zip      = new JSZip();
+  const date       = elEntryDate.value || currentDate;
+  const vaultOrg   = elVaultOrgCheck.checked;
+  const journalText = vaultOrg ? elJournalInput.value.trim() : '';
+  const zip        = new JSZip();
 
-  if (vaultOrg) {
-    // --- Vault structure: 00 Journal/, 01 Inbox/, People/, monthly subfolders ---
-    const journalText = elJournalInput.value.trim();
-    if (journalText) {
-      zip.file(journalPath(date), journalText + '\n');
-    }
-
-    extractedNotes.forEach((note, idx) => {
-      const fm      = buildFrontmatter(note, date);
-      const content = fm + '\n\n' + (note.body || '') + '\n';
-      const slug    = slugify(note.title || `note-${idx + 1}`);
-      zip.file(`${paraFolder(note)}/${slug}.md`, content);
-    });
-  } else {
-    // --- Flat structure: alluvium-notes/ ---
-    const folder = zip.folder('alluvium-notes');
-    extractedNotes.forEach((note, idx) => {
-      const fm      = buildFrontmatter(note, date);
-      const content = fm + '\n\n' + (note.body || '') + '\n';
-      const slug    = slugify(note.title || `note-${idx + 1}`);
-      folder.file(`${slug}.md`, content);
-    });
-  }
+  const files = buildFileList(extractedNotes, date, vaultOrg, journalText);
+  files.forEach(({ path, content }) => zip.file(path, content));
 
   const blob = await zip.generateAsync({ type: 'blob' });
   const url  = URL.createObjectURL(blob);

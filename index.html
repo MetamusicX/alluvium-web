@@ -200,6 +200,23 @@ personal: Personal — everything else"
           <p class="settings-note" id="model-status"></p>
         </div>
 
+        <!-- Output Folder -->
+        <div class="settings-card" id="folder-card">
+          <h3 class="settings-card-title">Output Folder</h3>
+          <p class="settings-card-desc">
+            Choose a folder on your computer. Extracted notes will be saved directly there — no ZIP needed. Requires Chrome or Edge.
+          </p>
+          <div class="folder-display">
+            <span class="folder-icon">&#128193;</span>
+            <span class="folder-name" id="folder-name">No folder selected</span>
+          </div>
+          <div class="settings-actions">
+            <button class="btn btn-primary btn-sm" id="btn-choose-folder">Choose folder</button>
+            <button class="btn btn-ghost btn-sm" id="btn-clear-folder" style="display:none">Remove</button>
+          </div>
+          <p class="settings-note" id="folder-status"></p>
+        </div>
+
       </div>
     </div>
   </section>
