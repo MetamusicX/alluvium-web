@@ -2,23 +2,35 @@
 
 **Flow becomes knowledge.**
 
-Alluvium is a browser-based journal processor that extracts atomic notes from free-form daily entries using Claude. No server, no backend — your API key stays in your browser.
+Alluvium is a browser-based journal processor that extracts atomic notes from free-form daily entries using any major LLM. No server, no backend — your API key stays in your browser.
 
 Write in any language. Alluvium will understand you.
 
 ## How it works
 
 1. **Write** or paste your journal entry
-2. **Process** — Claude reads the entry and extracts distinct atomic notes (ideas, events, tasks, reflections, people, practice logs)
+2. **Process** — the AI reads the entry and extracts distinct atomic notes (ideas, events, tasks, reflections, people, practice logs)
 3. **Download** as Obsidian-compatible markdown files with YAML frontmatter, or copy to clipboard
 
 Each note gets a type, domain, tags, wikilinks, and related connections — ready to drop into an Obsidian vault.
+
+## Supported providers
+
+Bring your own API key from any of these providers:
+
+- **Anthropic** — Claude Sonnet 4.6, Opus 4.5, Haiku 4.5
+- **OpenAI** — GPT-4o, GPT-4.1, o4-mini
+- **Google Gemini** — Gemini 2.5 Pro, Gemini 2.5 Flash
+- **Mistral** — Mistral Large, Mistral Small
+- **DeepSeek** — DeepSeek Chat, DeepSeek Reasoner
+
+API keys are stored per provider — you can switch between them without re-entering.
 
 ## PARA organization (opt-in)
 
 Toggle **"Organize for Obsidian vault"** in the editor to enable [Tiago Forte's PARA method](https://fortelabs.com/blog/para/). When enabled:
 
-- Claude classifies each note into **Projects**, **Areas**, **Resources**, or **Archive**
+- The AI classifies each note into **Projects**, **Areas**, **Resources**, or **Archive**
 - The ZIP download mirrors your vault folder structure (`1 Projects/`, `2 Areas/`, `3 Resources/`, `4 Archive/`, `People/`)
 - Journal entries are placed at the correct path with monthly subfolders (`00 Journal/`)
 - Person-type notes go to `People/`
@@ -27,33 +39,34 @@ When disabled, you get a flat `alluvium-notes/` folder — simple and unopiniona
 
 ## Setup
 
-1. Get an [Anthropic API key](https://console.anthropic.com/)
-2. Open Alluvium and paste your key in **Settings**
-3. (Optional) Customise your life domains — these give Claude context for classifying notes
-4. Start writing
+1. Get an API key from your preferred provider
+2. Open Alluvium and select your provider in **Settings**
+3. Paste your API key and choose a model
+4. (Optional) Customise your life domains — these give the AI context for classifying notes
+5. Start writing
 
-Your API key is stored in `localStorage` and used only for direct browser-to-Claude calls. It never touches a server.
+Your API key is stored in `localStorage` and used only for direct browser-to-API calls. It never touches a server.
 
 ## Customisation
 
 ### Life domains
 
-Domains give Claude context about your life areas. Default domains: Work, Writing, Sport, Music, Personal. Edit them in Settings — one per line, format: `key: Name — description`.
+Domains give the AI context about your life areas. Default domains: Work, Writing, Sport, Music, Personal. Edit them in Settings — one per line, format: `key: Name — description`.
 
 ### Model
 
-Choose between Claude Sonnet (recommended), Opus (slower, more thorough), or Haiku (fast, cheaper).
+Each provider offers multiple models. The recommended model is pre-selected, but you can switch between faster/cheaper and slower/more thorough options.
 
 ## Tech
 
 - Pure HTML, CSS, JavaScript — no build step, no frameworks
-- Direct browser-to-Anthropic API calls
+- Direct browser-to-API calls (bring your own key)
 - [JSZip](https://stuk.github.io/jszip/) for client-side ZIP generation
 - Deployed on [Netlify](https://www.netlify.com/) as a static site
 
 ## Privacy
 
-Everything runs in your browser. Your journal text is sent directly to the Anthropic API using your own key. Nothing is stored on any server. Nothing is logged.
+Everything runs in your browser. Your journal text is sent directly to the selected provider's API using your own key. Nothing is stored on any server. Nothing is logged.
 
 ## License
 

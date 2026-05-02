@@ -2,7 +2,7 @@
  * Alluvium — app.js
  * Flow becomes knowledge.
  *
- * All logic lives here. The Anthropic API is called directly from the browser
+ * All logic lives here. The LLM API is called directly from the browser
  * using the user's own key stored in localStorage. No server. No backend.
  */
 
@@ -12,12 +12,72 @@
 // Constants
 // =============================================================
 
-const LS_API_KEY    = 'alluvium_api_key';
+const LS_PROVIDER   = 'alluvium_provider';
 const LS_DOMAINS    = 'alluvium_domains';
 const LS_MODEL      = 'alluvium_model';
 const LS_VAULT_ORG  = 'alluvium_vault_org';
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
+// Per-provider key storage: alluvium_key_{provider}
+function lsKeyFor(providerKey) { return `alluvium_key_${providerKey}`; }
+
+const PROVIDERS = [
+  {
+    key: 'anthropic',
+    name: 'Anthropic',
+    baseUrl: 'https://api.anthropic.com',
+    keyPlaceholder: 'sk-ant-...',
+    models: [
+      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (recommended)' },
+      { id: 'claude-opus-4-5',   label: 'Claude Opus 4.5 (slower, more thorough)' },
+      { id: 'claude-haiku-4-5',  label: 'Claude Haiku 4.5 (fast, cheaper)' },
+    ],
+  },
+  {
+    key: 'openai',
+    name: 'OpenAI',
+    baseUrl: 'https://api.openai.com',
+    keyPlaceholder: 'sk-...',
+    models: [
+      { id: 'gpt-4o',    label: 'GPT-4o (recommended)' },
+      { id: 'gpt-4.1',   label: 'GPT-4.1' },
+      { id: 'o4-mini',   label: 'o4-mini (fast, cheaper)' },
+    ],
+  },
+  {
+    key: 'google',
+    name: 'Google Gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com',
+    keyPlaceholder: 'AIza...',
+    models: [
+      { id: 'gemini-2.5-pro',   label: 'Gemini 2.5 Pro (recommended)' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (fast, cheaper)' },
+    ],
+  },
+  {
+    key: 'mistral',
+    name: 'Mistral',
+    baseUrl: 'https://api.mistral.ai',
+    keyPlaceholder: '...',
+    models: [
+      { id: 'mistral-large-latest', label: 'Mistral Large (recommended)' },
+      { id: 'mistral-small-latest', label: 'Mistral Small (fast, cheaper)' },
+    ],
+  },
+  {
+    key: 'deepseek',
+    name: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com',
+    keyPlaceholder: 'sk-...',
+    models: [
+      { id: 'deepseek-chat',     label: 'DeepSeek Chat (recommended)' },
+      { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner' },
+    ],
+  },
+];
+
+function getProvider(key) {
+  return PROVIDERS.find(p => p.key === key) || PROVIDERS[0];
+}
 
 const DEFAULT_DOMAINS = [
   { key: 'work',     name: 'Work',     description: 'Main professional activities and responsibilities' },
@@ -109,6 +169,7 @@ const elStatusText         = $('status-text');
 const elErrorBanner        = $('error-banner');
 const elErrorMessage       = $('error-message');
 
+const elProviderSelect     = $('provider-select');
 const elApiKeyInput        = $('api-key-input');
 const elBtnToggleKey       = $('btn-toggle-key');
 const elBtnSaveKey         = $('btn-save-key');
@@ -138,6 +199,13 @@ const elBtnCopyAll         = $('btn-copy-all');
 // =============================================================
 
 function init() {
+  // Migrate legacy single-provider API key → per-provider storage
+  const legacyKey = localStorage.getItem('alluvium_api_key');
+  if (legacyKey) {
+    localStorage.setItem(lsKeyFor('anthropic'), legacyKey);
+    localStorage.removeItem('alluvium_api_key');
+  }
+
   // Set today's date
   const today = new Date();
   const iso   = today.toISOString().split('T')[0];
@@ -154,6 +222,7 @@ function init() {
   elBtnProcess.addEventListener('click', onProcess);
   elBtnClear.addEventListener('click', onClear);
 
+  elProviderSelect.addEventListener('change', onProviderChange);
   elBtnToggleKey.addEventListener('click', toggleKeyVisibility);
   elBtnSaveKey.addEventListener('click', saveApiKey);
   elBtnClearKey.addEventListener('click', clearApiKey);
@@ -179,23 +248,74 @@ function init() {
 // =============================================================
 
 function loadSettingsUI() {
-  // API key
-  const savedKey = localStorage.getItem(LS_API_KEY);
+  // Provider
+  populateProviderSelect();
+  const providerKey = localStorage.getItem(LS_PROVIDER) || 'anthropic';
+  elProviderSelect.value = providerKey;
+
+  const provider = getProvider(providerKey);
+
+  // API key for selected provider
+  const savedKey = localStorage.getItem(lsKeyFor(providerKey));
   if (savedKey) {
     elApiKeyInput.value = savedKey;
     setKeyStatus('Key saved.', 'ok');
+  }
+  elApiKeyInput.placeholder = provider.keyPlaceholder;
+
+  // Models for selected provider
+  populateModelSelect(providerKey);
+  const savedModel = localStorage.getItem(LS_MODEL);
+  if (savedModel && provider.models.some(m => m.id === savedModel)) {
+    elModelSelect.value = savedModel;
   }
 
   // Domains
   const savedDomains = loadDomains();
   elDomainsInput.value = domainsToText(savedDomains);
 
-  // Model
-  const savedModel = localStorage.getItem(LS_MODEL) || DEFAULT_MODEL;
-  elModelSelect.value = savedModel;
-
   // Vault organization
   elVaultOrgCheck.checked = !!localStorage.getItem(LS_VAULT_ORG);
+}
+
+function populateProviderSelect() {
+  elProviderSelect.innerHTML = '';
+  PROVIDERS.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value       = p.key;
+    opt.textContent = p.name;
+    elProviderSelect.appendChild(opt);
+  });
+}
+
+function populateModelSelect(providerKey) {
+  const provider = getProvider(providerKey);
+  elModelSelect.innerHTML = '';
+  provider.models.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value       = m.id;
+    opt.textContent = m.label;
+    elModelSelect.appendChild(opt);
+  });
+}
+
+function onProviderChange() {
+  const providerKey = elProviderSelect.value;
+  localStorage.setItem(LS_PROVIDER, providerKey);
+
+  const provider = getProvider(providerKey);
+
+  // Load saved key for this provider
+  const savedKey = localStorage.getItem(lsKeyFor(providerKey));
+  elApiKeyInput.value       = savedKey || '';
+  elApiKeyInput.placeholder = provider.keyPlaceholder;
+  setKeyStatus(savedKey ? 'Key saved.' : '', savedKey ? 'ok' : '');
+
+  // Rebuild model list, auto-select recommended
+  populateModelSelect(providerKey);
+  localStorage.setItem(LS_MODEL, provider.models[0].id);
+  elModelStatus.textContent = '';
+  elModelStatus.className   = 'settings-note';
 }
 
 function loadDomains() {
@@ -240,16 +360,14 @@ function saveApiKey() {
     setKeyStatus('Enter a key first.', 'err');
     return;
   }
-  if (!key.startsWith('sk-ant-')) {
-    setKeyStatus('Key should start with sk-ant-', 'err');
-    return;
-  }
-  localStorage.setItem(LS_API_KEY, key);
+  const providerKey = elProviderSelect.value;
+  localStorage.setItem(lsKeyFor(providerKey), key);
   setKeyStatus('Saved.', 'ok');
 }
 
 function clearApiKey() {
-  localStorage.removeItem(LS_API_KEY);
+  const providerKey = elProviderSelect.value;
+  localStorage.removeItem(lsKeyFor(providerKey));
   elApiKeyInput.value = '';
   setKeyStatus('Key removed.', '');
 }
@@ -420,11 +538,23 @@ Return ONLY the JSON array. No markdown code fences, no commentary.`;
 }
 
 // =============================================================
-// API call
+// API call — multi-provider
 // =============================================================
 
-async function callClaude(apiKey, model, prompt) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+async function callLLM(providerKey, apiKey, model, prompt) {
+  const provider = getProvider(providerKey);
+  if (providerKey === 'anthropic') {
+    return callAnthropic(provider.baseUrl, apiKey, model, prompt);
+  } else if (providerKey === 'google') {
+    return callGemini(provider.baseUrl, apiKey, model, prompt);
+  } else {
+    // OpenAI-compatible: openai, mistral, deepseek
+    return callOpenAICompatible(provider.baseUrl, apiKey, model, prompt);
+  }
+}
+
+async function callAnthropic(baseUrl, apiKey, model, prompt) {
+  const response = await fetch(`${baseUrl}/v1/messages`, {
     method: 'POST',
     headers: {
       'Content-Type':         'application/json',
@@ -433,20 +563,56 @@ async function callClaude(apiKey, model, prompt) {
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model:      model,
+      model,
       max_tokens: 8192,
-      messages:   [{ role: 'user', content: prompt }],
+      messages: [{ role: 'user', content: prompt }],
     }),
   });
-
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
-    const msg = err?.error?.message || `HTTP ${response.status}`;
-    throw new Error(msg);
+    throw new Error(err?.error?.message || `HTTP ${response.status}`);
   }
-
   const data = await response.json();
   return data.content[0].text.trim();
+}
+
+async function callOpenAICompatible(baseUrl, apiKey, model, prompt) {
+  const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 8192,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `HTTP ${response.status}`);
+  }
+  const data = await response.json();
+  return data.choices[0].message.content.trim();
+}
+
+async function callGemini(baseUrl, apiKey, model, prompt) {
+  const url = `${baseUrl}/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 8192 },
+    }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `HTTP ${response.status}`);
+  }
+  const data = await response.json();
+  return data.candidates[0].content.parts[0].text.trim();
 }
 
 // =============================================================
@@ -454,7 +620,7 @@ async function callClaude(apiKey, model, prompt) {
 // =============================================================
 
 function parseNotes(raw) {
-  // Strip markdown code fences if Claude wraps the JSON anyway
+  // Strip markdown code fences if the model wraps the JSON
   let text = raw.trim();
   if (text.startsWith('```')) {
     text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
@@ -477,26 +643,27 @@ async function onProcess() {
     return;
   }
 
-  const apiKey = localStorage.getItem(LS_API_KEY) || '';
+  const providerKey = localStorage.getItem(LS_PROVIDER) || 'anthropic';
+  const provider    = getProvider(providerKey);
+  const apiKey      = localStorage.getItem(lsKeyFor(providerKey)) || '';
   if (!apiKey) {
-    showError('No API key found. Add your Anthropic API key in Settings below.');
-    // Scroll to settings
+    showError('No API key found. Add your API key in Settings below.');
     document.getElementById('settings').scrollIntoView({ behavior: 'smooth' });
     return;
   }
 
-  const model    = localStorage.getItem(LS_MODEL) || DEFAULT_MODEL;
+  const model    = localStorage.getItem(LS_MODEL) || provider.models[0].id;
   const domains  = loadDomains();
   const date     = elEntryDate.value || currentDate;
   const vaultOrg = elVaultOrgCheck.checked;
 
-  setProcessing(true, 'Sending to Claude...');
+  setProcessing(true, `Sending to ${provider.name}...`);
 
   try {
     const prompt = buildPrompt(journalText, domains, date, vaultOrg);
 
     setProcessing(true, 'Extracting atomic notes...');
-    const raw   = await callClaude(apiKey, model, prompt);
+    const raw   = await callLLM(providerKey, apiKey, model, prompt);
 
     setProcessing(true, 'Parsing response...');
     const notes = parseNotes(raw);
@@ -510,13 +677,13 @@ async function onProcess() {
     if (msg.includes('401') || msg.includes('authentication')) {
       msg = 'Invalid API key. Check your key in Settings.';
     } else if (msg.includes('403')) {
-      msg = 'API key does not have permission. Check your Anthropic account.';
+      msg = 'API key does not have permission. Check your account with the selected provider.';
     } else if (msg.includes('429')) {
       msg = 'Rate limited. Wait a moment and try again.';
     } else if (msg.includes('overloaded') || msg.includes('529')) {
-      msg = 'Claude is overloaded. Try again in a moment.';
+      msg = 'The API is overloaded. Try again in a moment.';
     } else if (msg.includes('NetworkError') || msg.includes('Failed to fetch')) {
-      msg = 'Network error. Check your internet connection and that your browser allows cross-origin requests.';
+      msg = 'Network error. Check your internet connection. Some providers may not support direct browser calls — try a different provider if this persists.';
     }
     showError(msg);
   } finally {
