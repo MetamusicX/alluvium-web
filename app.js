@@ -384,10 +384,10 @@ function loadSettingsUI() {
 // =============================================================
 
 async function loadFolderUI() {
-  if (!('showDirectoryPicker' in window)) {
-    if (elFolderCard) elFolderCard.style.display = 'none';
-    return;
-  }
+  // Card is hidden by default in HTML; only show in supported browsers
+  if (!('showDirectoryPicker' in window)) return;
+  if (elFolderCard) elFolderCard.style.display = '';
+
   try {
     const handle = await loadHandle();
     if (handle) {
@@ -404,20 +404,15 @@ async function loadFolderUI() {
 }
 
 async function chooseFolder() {
-  if (!('showDirectoryPicker' in window)) {
-    setFolderStatus('Not supported in this browser. Use Chrome or Edge.', 'err');
-    return;
-  }
   try {
-    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    const handle = await window.showDirectoryPicker();
     await saveHandle(handle);
     elFolderName.textContent = handle.name;
     elBtnClearFolder.style.display = 'inline-flex';
     setFolderStatus('Folder set. Notes will save here automatically.', 'ok');
   } catch (err) {
-    if (err.name !== 'AbortError') {
-      setFolderStatus('Could not access folder.', 'err');
-    }
+    if (err.name === 'AbortError') return; // user cancelled picker
+    setFolderStatus(`Could not access folder: ${err.message}`, 'err');
   }
 }
 
