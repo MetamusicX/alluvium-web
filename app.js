@@ -384,9 +384,12 @@ function loadSettingsUI() {
 // =============================================================
 
 async function loadFolderUI() {
-  // Card is hidden by default in HTML; only show in supported browsers
-  if (!('showDirectoryPicker' in window)) return;
-  if (elFolderCard) elFolderCard.style.display = '';
+  if (!('showDirectoryPicker' in window)) {
+    // API not available — disable button, show guidance
+    elBtnChooseFolder.disabled = true;
+    setFolderStatus('Not available in this browser. Use Chrome or Edge, or lower Brave Shields for this site.', 'err');
+    return;
+  }
 
   try {
     const handle = await loadHandle();
@@ -404,6 +407,10 @@ async function loadFolderUI() {
 }
 
 async function chooseFolder() {
+  if (!('showDirectoryPicker' in window)) {
+    setFolderStatus('Not available in this browser. Use Chrome or Edge, or lower Brave Shields for this site.', 'err');
+    return;
+  }
   setFolderStatus('Opening folder picker...', '');
   try {
     const handle = await window.showDirectoryPicker();
