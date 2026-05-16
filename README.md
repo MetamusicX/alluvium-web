@@ -31,11 +31,25 @@ API keys are stored per provider — you can switch between them without re-ente
 Toggle **"Organize for Obsidian vault"** in the editor to enable [Tiago Forte's PARA method](https://fortelabs.com/blog/para/). When enabled:
 
 - The AI classifies each note into **Projects**, **Areas**, **Resources**, or **Archive**
-- The ZIP download mirrors your vault folder structure (`1 Projects/`, `2 Areas/`, `3 Resources/`, `4 Archive/`, `People/`)
+- The ZIP download mirrors your vault folder structure (`1 Projects/`, `2 Areas/`, `3 Resources/`, `4 Archive/`, `5 Conversations/`, `People/`)
 - Journal entries are placed at the correct path with monthly subfolders (`00 Journal/`)
 - Person-type notes go to `People/`
 
 When disabled, you get a flat `alluvium-notes/` folder — simple and unopinionated.
+
+## Conversations — dialogue with your sedimented knowledge
+
+As your vault accumulates layers over weeks and months, a new possibility emerges: you can **interrogate your own sedimented knowledge**. Use any AI assistant (Claude Code, ChatGPT, Cursor, or similar) to ask questions about patterns, connections, and themes across your entire vault.
+
+When a dialogue produces conclusions worth keeping, ask the assistant to summarize it into `5 Conversations/YYYY-MM-DD-<topic-slug>.md` with this structure:
+
+- **Context** — what prompted the question
+- **Key Findings** — what emerged
+- **Conclusions** — interpretive takeaways
+- **Decisions** — what was resolved
+- **To-dos** — next actions
+
+These files are not automatic. They preserve only the dialogues that crystallize something worth returning to. Over time, the Conversations folder becomes a record of your evolving understanding of your own material — the shift from a system that merely *stores* knowledge to one that helps you *think with* it.
 
 ## Setup
 
