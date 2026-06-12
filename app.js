@@ -28,7 +28,7 @@ const PROVIDERS = [
     keyPlaceholder: 'sk-ant-...',
     models: [
       { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (recommended)' },
-      { id: 'claude-opus-4-5',   label: 'Claude Opus 4.5 (slower, more thorough)' },
+      { id: 'claude-opus-4-8',   label: 'Claude Opus 4.8 (slower, more thorough)' },
       { id: 'claude-haiku-4-5',  label: 'Claude Haiku 4.5 (fast, cheaper)' },
     ],
   },
@@ -791,6 +791,26 @@ function parseNotes(raw) {
   return notes;
 }
 
+/**
+ * Call the LLM and parse the response, re-asking on malformed JSON.
+ * Models occasionally return broken JSON — a fresh attempt usually fixes it.
+ */
+async function extractNotes(providerKey, apiKey, model, prompt, parseRetries = 2) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= parseRetries; attempt++) {
+    if (attempt > 0) {
+      setProcessing(true, `Response was malformed — asking again (${attempt}/${parseRetries})...`);
+    }
+    const raw = await callLLM(providerKey, apiKey, model, prompt);
+    try {
+      return parseNotes(raw);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw new Error(`The model kept returning malformed JSON (${lastErr.message}). Try again, or switch to a different model.`);
+}
+
 // =============================================================
 // Main processing flow
 // =============================================================
@@ -834,10 +854,7 @@ async function onProcess() {
     const prompt = buildPrompt(journalText, domains, date, vaultOrg);
 
     setProcessing(true, 'Extracting atomic notes...');
-    const raw   = await callLLM(providerKey, apiKey, model, prompt);
-
-    setProcessing(true, 'Parsing response...');
-    const notes = parseNotes(raw);
+    const notes = await extractNotes(providerKey, apiKey, model, prompt);
 
     extractedNotes = notes;
 
@@ -934,7 +951,7 @@ function typeClass(type) {
 }
 
 function buildFrontmatter(note, date) {
-  const related = (note.related || []).map(r => `  - "[[${r}]]"`).join('\n');
+  const related = (note.related || []).map(r => `  - "[[${escapeYaml(r)}]]"`).join('\n');
   const tags    = (note.tags || []).map(t => `  - ${t}`).join('\n');
 
   const lines = [
@@ -986,8 +1003,9 @@ function highlightFrontmatter(fm) {
 }
 
 function renderBody(body) {
-  // Turn [[wikilinks]] into styled spans
-  return (body || '')
+  // Escape HTML first — the body is model output derived from arbitrary input
+  // and is rendered via innerHTML. Then turn [[wikilinks]] into styled spans.
+  return escapeHtml(body || '')
     .replace(/\[\[([^\]]+)\]\]/g, '<span class="wikilink">[[<em>$1</em>]]</span>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>');

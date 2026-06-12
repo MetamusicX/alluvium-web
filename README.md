@@ -18,7 +18,7 @@ Each note gets a type, domain, tags, wikilinks, and related connections — read
 
 Bring your own API key from any of these providers:
 
-- **Anthropic** — Claude Sonnet 4.6, Opus 4.5, Haiku 4.5
+- **Anthropic** — Claude Sonnet 4.6, Opus 4.8, Haiku 4.5
 - **OpenAI** — GPT-4o, GPT-4.1, o4-mini
 - **Google Gemini** — Gemini 2.5 Pro, Gemini 2.5 Flash
 - **Mistral** — Mistral Large, Mistral Small
