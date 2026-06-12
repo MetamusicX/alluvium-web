@@ -37,6 +37,17 @@ Toggle **"Organize for Obsidian vault"** in the editor to enable [Tiago Forte's 
 
 When disabled, you get a flat `alluvium-notes/` folder — simple and unopinionated.
 
+## Vault awareness (Chrome/Edge)
+
+When you connect an output folder (ideally your Obsidian vault), Alluvium becomes vault-aware:
+
+- Before each extraction it scans your existing notes (all people, plus the most recently modified notes)
+- The AI sees those titles, links to them with `[[wikilinks]]`, and **does not re-create people or topics that already exist**
+- New context about an existing person or topic is **appended to that note** as a dated update, instead of creating a duplicate
+- Appends refresh the note's `date_modified` in the frontmatter
+
+Everything stays local: the scan happens in your browser via the File System Access API, and only note *titles* are included in the prompt sent to your chosen provider.
+
 ## Conversations — dialogue with your sedimented knowledge
 
 As your vault accumulates layers over weeks and months, a new possibility emerges: you can **interrogate your own sedimented knowledge**. Use any AI assistant (Claude Code, ChatGPT, Cursor, or similar) to ask questions about patterns, connections, and themes across your entire vault.

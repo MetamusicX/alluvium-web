@@ -786,6 +786,16 @@ section:first-of-type {
   border: 1px solid;
 }
 
+.note-appended {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--gold);
+  background: var(--gold-glow);
+  border: 1px solid rgba(201, 169, 110, 0.25);
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+}
+
 .para-project  { color: #a3be8c; background: rgba(163, 190, 140, 0.10); border-color: rgba(163, 190, 140, 0.25); }
 .para-area     { color: #81a1c1; background: rgba(129, 161, 193, 0.10); border-color: rgba(129, 161, 193, 0.25); }
 .para-resource { color: var(--gold); background: var(--gold-glow); border-color: rgba(201, 169, 110, 0.25); }

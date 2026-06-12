@@ -234,6 +234,133 @@ async function writeFilesToFolder(handle, files) {
 }
 
 // =============================================================
+// Vault awareness — scan the connected folder for existing notes
+// so the AI can link to them and append instead of duplicating.
+// Mirrors the local Alluvium pipeline: all People/Authors titles
+// plus the most recently modified notes, capped.
+// =============================================================
+
+const SCAN_SKIP_DIRS    = ['00 Journal', 'Day Summaries', 'Attachments'];
+const MAX_SCAN_FILES    = 3000; // hard stop for very large folders
+const MAX_RECENT_NOTES  = 200;  // non-people notes shown to the prompt
+const PEOPLE_DIR_NAMES  = ['People', 'Authors'];
+
+function titleFromFrontmatter(text) {
+  if (!text.startsWith('---')) return null;
+  const end = text.indexOf('\n---', 3);
+  const fm  = end === -1 ? text : text.slice(0, end);
+  const m   = fm.match(/^title:\s*["']?(.+?)["']?\s*$/m);
+  return m ? m[1] : null;
+}
+
+/**
+ * Walk the vault folder and index every markdown note.
+ * Returns { titles, index, total }:
+ *   titles — note titles for the prompt (all people + recent others)
+ *   index  — Map of slug → { title, fileHandle } for append targeting
+ */
+async function scanVault(rootHandle) {
+  const people = [];
+  const others = [];
+  let visited  = 0;
+
+  async function walk(dirHandle, inPeople) {
+    for await (const entry of dirHandle.values()) {
+      if (visited >= MAX_SCAN_FILES) return;
+      if (entry.kind === 'directory') {
+        if (entry.name.startsWith('.') || SCAN_SKIP_DIRS.includes(entry.name)) continue;
+        await walk(entry, inPeople || PEOPLE_DIR_NAMES.includes(entry.name));
+      } else if (entry.kind === 'file' && entry.name.endsWith('.md') && !entry.name.startsWith('_')) {
+        visited++;
+        try {
+          const file  = await entry.getFile();
+          const head  = await file.slice(0, 4096).text();
+          const stem  = entry.name.replace(/\.md$/, '');
+          const title = titleFromFrontmatter(head) || stem.replace(/-/g, ' ');
+          (inPeople ? people : others).push({
+            title, stem, fileHandle: entry, lastModified: file.lastModified,
+          });
+        } catch (e) { /* unreadable file — skip */ }
+      }
+    }
+  }
+
+  await walk(rootHandle, false);
+
+  others.sort((a, b) => b.lastModified - a.lastModified);
+  const selected = people.concat(others.slice(0, MAX_RECENT_NOTES));
+
+  const index = new Map();
+  for (const rec of people.concat(others)) {
+    index.set(rec.stem, rec);                  // by filename
+    index.set(slugify(rec.title), rec);        // by title slug
+  }
+
+  return { titles: selected.map(r => r.title), index, total: people.length + others.length };
+}
+
+/**
+ * Find the existing note a freshly extracted note should merge into:
+ * an explicit append_to target, or a slug collision with its own title.
+ */
+function findExistingNote(note, vaultIndex) {
+  if (!vaultIndex) return null;
+  if (note.append_to) {
+    const rec = vaultIndex.get(slugify(note.append_to));
+    if (rec) return rec;
+  }
+  return vaultIndex.get(slugify(note.title || '')) || null;
+}
+
+/**
+ * Save notes into the connected vault: append to existing notes when the AI
+ * targeted one (or the title collides with one), create new files otherwise.
+ */
+async function saveNotesToVault(handle, notes, date, vaultOrg, journalText, vaultIndex) {
+  let created = 0, appended = 0;
+
+  if (vaultOrg && journalText) {
+    await writeFilesToFolder(handle, [{ path: journalPath(date), content: journalText + '\n' }]);
+  }
+
+  for (let idx = 0; idx < notes.length; idx++) {
+    const note     = notes[idx];
+    const existing = findExistingNote(note, vaultIndex);
+    if (existing) {
+      await appendToExistingNote(existing, note, date);
+      note._appendedTo = existing.title;
+      appended++;
+    } else {
+      const fm     = buildFrontmatter(note, date);
+      const slug   = slugify(note.title || `note-${idx + 1}`);
+      const folder = vaultOrg ? paraFolder(note) : 'alluvium-notes';
+      await writeFilesToFolder(handle, [{ path: `${folder}/${slug}.md`, content: fm + '\n\n' + (note.body || '') + '\n' }]);
+      created++;
+    }
+  }
+
+  return { created, appended };
+}
+
+/**
+ * Append new context to an existing note instead of overwriting it,
+ * refreshing date_modified so vault tooling sees the note as touched.
+ */
+async function appendToExistingNote(rec, note, date) {
+  const file = await rec.fileHandle.getFile();
+  let text   = await file.text();
+
+  if (text.startsWith('---')) {
+    text = text.replace(/^(date_modified:\s*).+$/m, `$1${date}`);
+  }
+
+  const entry = `\n\n---\n### Update — ${date}\n\n${note.body || ''}\n`;
+  const w = await rec.fileHandle.createWritable();
+  await w.write(text.replace(/\s+$/, '') + entry);
+  await w.close();
+}
+
+// =============================================================
 // State
 // =============================================================
 
@@ -641,12 +768,26 @@ Reading Deleuze's "Difference and Repetition" again. The concept of the virtual 
 ]
 `;
 
-function buildPrompt(journalText, domains, targetDate, vaultOrg) {
+function buildPrompt(journalText, domains, targetDate, vaultOrg, existingTitles) {
   const domainsDesc = domains
     .map(d => `- **${d.name}** (${d.key}): ${d.description}`)
     .join('\n');
 
   const noteTypes = NOTE_TYPES.join(', ');
+
+  const hasVault = existingTitles && existingTitles.length;
+
+  const existingSection = hasVault ? `
+## Existing notes in the vault (for linking)
+${existingTitles.join(', ')}
+` : '';
+
+  const vaultRules = hasVault ? `
+11. For people NOT already in the existing notes list, create a person-type note. If a person or concept already exists in the vault, reference them with [[wikilinks]] but do NOT create a new note for them. Instead, include an "append_to" field with their exact existing title.` : '';
+
+  const appendField = hasVault
+    ? `\n- "append_to": (optional) if this adds context to an existing vault note, put that note's exact title here`
+    : '';
 
   const paraRules = vaultOrg ? `
 ## PARA Classification (Tiago Forte)
@@ -667,7 +808,7 @@ Most freshly extracted notes will be "resource" (ideas, readings, reflections) o
 
 ## Context — Life Domains
 ${domainsDesc}
-
+${existingSection}
 ## Rules
 1. Extract each distinct item as a separate note. One idea = one note. One event = one note. One task = one note.
 2. Assign each note a type from: ${noteTypes}
@@ -678,7 +819,7 @@ ${domainsDesc}
 7. Keep the original voice and feeling. Don't sanitize or over-summarize.
 8. For practice logs (training, music practice), include specific details: duration, what was practiced/trained, how it felt.
 9. Every note body should end with: Extracted from [[${targetDate}]].
-10. The "related" field lists titles of other notes this one connects to.
+10. The "related" field lists titles of other notes this one connects to.${vaultRules}
 ${paraRules}${FEW_SHOT_EXAMPLE}
 
 ## Output Format
@@ -688,7 +829,7 @@ Return a JSON array of objects, each with:
 - "domain": primary domain key from the domains listed above
 - "tags": list of tags (lowercase, no #, use hyphens not spaces)
 - "related": list of titles this note connects to (used as [[wikilinks]])
-- "body": the note content in markdown, using [[wikilinks]] for connections${paraOutputField}
+- "body": the note content in markdown, using [[wikilinks]] for connections${appendField}${paraOutputField}
 
 Journal date: ${targetDate}
 
@@ -851,7 +992,18 @@ async function onProcess() {
   setProcessing(true, `Sending to ${provider.name}...`);
 
   try {
-    const prompt = buildPrompt(journalText, domains, date, vaultOrg);
+    // Vault awareness: read the connected folder so the AI can link to
+    // existing notes and append to them instead of creating duplicates.
+    let vault = null;
+    if (folderHandle) {
+      setProcessing(true, 'Reading your vault for existing notes...');
+      try {
+        vault = await scanVault(folderHandle);
+        if (!vault.total) vault = null;
+      } catch (e) { vault = null; /* scan failed — proceed without context */ }
+    }
+
+    const prompt = buildPrompt(journalText, domains, date, vaultOrg, vault ? vault.titles : null);
 
     setProcessing(true, 'Extracting atomic notes...');
     const notes = await extractNotes(providerKey, apiKey, model, prompt);
@@ -859,13 +1011,13 @@ async function onProcess() {
     extractedNotes = notes;
 
     // Auto-save to folder if set
+    let saveStats = null;
     if (folderHandle) {
       setProcessing(true, `Saving to ${folderHandle.name}...`);
-      const files = buildFileList(notes, date, vaultOrg, vaultOrg ? journalText : '');
-      await writeFilesToFolder(folderHandle, files);
+      saveStats = await saveNotesToVault(folderHandle, notes, date, vaultOrg, journalText, vault ? vault.index : null);
     }
 
-    renderResults(notes, date, folderHandle);
+    renderResults(notes, date, folderHandle, saveStats);
 
   } catch (err) {
     let msg = err.message || 'Unknown error.';
@@ -912,7 +1064,7 @@ function hideError() {
 // Render results
 // =============================================================
 
-function renderResults(notes, date, folderHandle) {
+function renderResults(notes, date, folderHandle, saveStats) {
   elNotesGrid.innerHTML = '';
 
   if (!notes.length) {
@@ -926,9 +1078,13 @@ function renderResults(notes, date, folderHandle) {
 
   const n = notes.length;
   const label = `${n} note${n !== 1 ? 's' : ''}`;
-  elResultsCount.textContent = folderHandle
-    ? `${label} saved to ${folderHandle.name}`
-    : `${label} extracted`;
+  if (saveStats && saveStats.appended) {
+    elResultsCount.textContent = `${label} — ${saveStats.created} new, ${saveStats.appended} merged into existing notes — saved to ${folderHandle.name}`;
+  } else if (folderHandle) {
+    elResultsCount.textContent = `${label} saved to ${folderHandle.name}`;
+  } else {
+    elResultsCount.textContent = `${label} extracted`;
+  }
   elResults.style.display    = 'block';
   elNavResults.style.display = 'inline';
 
@@ -1037,6 +1193,13 @@ function buildNoteCard(note, date, idx) {
   // Meta (domain + tags)
   const meta = document.createElement('div');
   meta.className = 'note-card-meta';
+
+  if (note._appendedTo || note.append_to) {
+    const appEl = document.createElement('span');
+    appEl.className   = 'note-appended';
+    appEl.textContent = `↳ merged into ${note._appendedTo || note.append_to}`;
+    meta.appendChild(appEl);
+  }
 
   if (note.para) {
     const paraEl = document.createElement('span');
